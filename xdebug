@@ -1,0 +1,34 @@
+#!/usr/local/bin/perl -wT
+
+# save the entered info to a file & redisplay
+# this script is intended to management info that is editable by 
+# the course intructors:  course.cgi is a more general tool
+
+$ENV{PATH} = "/bin:/usr/bin";
+
+use lib "/var/www/html/physoffice/jobs/lib";
+use Debug;
+use lib '/var/www/lib/perl/sql_lib';
+
+use Job_Ad_MetaData;
+use Job_Appl_Info3;
+use PandA_html4;
+use newPAsql_Sessions;
+
+use strict;
+
+my $Debug = Debug::Set_Debug(10);
+my $this_script = "/cgi-bin/Jobs/xxAdmin";
+my $title = "Welcome to  P and A Job Application Admin";
+
+#sub do_mainpage
+#{
+    print "<h2> do_mainpage:: </h2>\n";
+    my @curr_jobs = Job_Ad_MetaData::Get_Current_Jobs();
+    foreach my $cj ( @curr_jobs )
+    {
+    	my $id = $cj->id;
+ my $xxonline = $cj->use_online;
+        print " id is {$id} {$xxonline}\n";
+    }
+

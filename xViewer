@@ -1,0 +1,815 @@
+#!/usr/local/bin/perl -wT
+
+# save the entered info to a file & redisplay
+# this script is intended to management info that is editable by 
+# the course intructors:  course.cgi is a more general tool
+
+$ENV{PATH} = "/bin:/usr/bin";
+
+use lib '/www/jobs/lib/';
+use lib '/var/www/lib/perl/sql_lib';
+
+use lib '/www/Gform/lib';
+use Job_Ad_MetaData;
+use Job_Appl_Info3;
+use PandA_html4;
+use newPAsql_Sessions;
+use PAsql_Dept;
+use strict;
+use CGI;
+use CGI::Carp 'fatalsToBrowser';
+use Date::Calc qw { Today Delta_Days Add_Delta_Days};
+require "job_sub.pl";
+use Debug;
+my $this_script = "/cgi-bin/Jobs/xViewer";
+my $title = "Welcome to  P A Job Application Viewer";
+my $title2 = " ";
+my $New_Dir = "/www/jobs/App_Data/New/";
+my $New = 0;	
+my @new_files = ();
+my %New_file_Age = ();
+my $version = "0.4.1";
+my $cut_date = 20090101;     #display jobs w "expires" after this
+
+my $NAPPS_PER_PAGE = 284;
+my ($wel, $fname);
+my $Course;
+my $New_File_Age = 3;
+my $sp = '&nbsp;';
+my $q = new CGI;
+my $Hidden;
+my $Debug = Debug::Set_Debug(1,'html');    
+my $user = newPAsql_Sessions::getPHASuser();
+print $q->redirect("https://secure.phas.ubc.ca/login.php?req_url=$this_script")
+    unless $user; 
+
+
+print $q->header(-type=> "text/html", -expires=>'now'), "\n";
+print $q->start_html( -title  => "PandA Online Job Appl Viewer ", 
+                      -style  =>{'src'=>'/jobs/lib2/job.css'},),"\n";
+print $q->start_multipart_form("POST", $this_script), "\n";
+
+Debug::dsay (" debug is $Debug");
+Debug::dumpit($q) if $Debug >1;
+Print_Error ( "NotAllowed" ) unless IsAllowed ($user); 
+
+   
+my $cnum = $q->param("edit") ? $q->param("edit") : "";
+
+Form_Welcome();
+
+if    ($q->param('Job_Appl') )			        { do_show_appl($q->param('Job_Appl') ); }
+elsif ($q->param('goto_File') eq "back" ) 	{ do_FileUpload(); }
+elsif ($q->param('View_by_KW') ) 		    { do_View_by_KW(); }
+elsif ($q->param('Read_File') ) 	        { do_Read_File();  }
+elsif ($q->param('View_New') ) 	            { do_View_New();   }
+elsif (defined ($q->param('page')) ) 	    { do_apps_page();  }
+elsif  ($q->param('Back'))  		        { do_apps_page();  }
+elsif ($q->param('edit') ) 		            {
+   if  ($q->param('edit') eq 'Submit passwd')	{
+        my $epass =  $q->param('mypasswd');
+        my $euser =  $q->param('user');
+		
+        do_mainpage();
+    }    elsif ($q->param('edit') eq 'Back') 	    #back from edit info page
+    { 
+        print $Hidden;
+        do_apps_page();
+
+    }
+    else
+    {
+      Debug::dsay ("comp num = {$cnum}   user is {$user} "); 
+     # print "dispatch... calling do_apps_page <br />";
+      do_apps_page();
+    }
+}
+else
+{
+    $wel = " ";
+    do_mainpage();
+}
+print $q->endform;
+print $q->end_html;
+exit;
+
+sub IsAllowed {
+	
+	use Jobs_Util;
+    my @others = qw { derek tonym leanne grieve rap jnakane};
+	my $t = shift;
+	my $okfac = Jobs_Util::isFaculty($t);
+	my $okoth = grep { $t eq $_ } @others;
+    my $out = ($okfac or $okoth);
+	return $out;
+}
+
+sub do_mainpage {    
+   my @curr_jobs = Job_Ad_MetaData::Get_Current_Jobs();
+   my $grace = 128;	       
+   my ($y,$m,$d) = Today();
+ 		       
+   my $now = $y * 10000
+           + $m * 100
+           + $d;
+#print the welcome    
+       
+        $wel = <<endxxx;
+<br /><strong>Step 1: </strong> Choose which Job from the following current jobs...<br>
+If the number of applications is greater than zero than the Comp # will lead to
+a list of applicants<br />
+endxxx
+
+    my ($t);
+ 
+    my $tdtopright = '<td valign="top" align="right">';
+    my $tdtop      = '<td valign="top">';
+    my $sp = '&nbsp;';
+    my $cellpad = ' cellpadding="4" ';
+
+    print $wel;
+    print '<table border="0" cellpadding="4" cellspacing="10">', "\n";   
+    print "<tr><td><strong>Competition Label</strong> </td>
+               <td>Comp No</td> 
+               <td>n appls</td></tr>\n";
+    my $cut_date = 20120601;
+    my %Scount = ();
+	
+	my %display_in_Viewer = ( "Fac-2015-04" => 1,
+						      "Fac-2015-05" => 1,
+							  "Fac-2016-01" => 1,
+							  "Fac-2016-99" => 1,
+							);
+	
+	
+    foreach my $cj (@curr_jobs ) {
+	    my $x =  $cj->id;
+		
+		next unless $display_in_Viewer{$x};   
+       my $expires = $cj->expires;  
+
+       #my $y = int ($expires/10000);
+       #my $m = int ( ($expires -$y *10000)/100);
+       #my $d = $expires - $y*10000 - $m*100;
+       #my @ex_date = Date::Calc::Add_Delta_Days($y,$m,$d,$grace);
+       #my $true_exp = $ex_date[0]*10000 + $ex_date[1]*100 + $ex_date[2];
+       #next unless (   $now <=  $true_exp);  
+
+
+       my $lab = $cj->text . " id = " . $cj->id;
+       my @appl = Job_Appl_Info3::Get_Appl_FileNames($cj->id);
+       my @apps = Job_Appl_Info3::Get_Job_Appl_Info($cj->id);
+       my $females = 0;
+       my $hemales = 0;
+       my $Non = 0;
+       my $No_citizen = 0;
+
+       my $napps = $#appl +1;
+       my $cid = $napps ? $q->submit(-name=>'edit',-value=>$cj->id) 
+                        : $cj->id ;
+       next  if $cid =~ /411/;
+       my $url = $cj->url;
+       my $anch = $cj->text;
+       $url = "http://gamma.phas.ubc.ca/" . $url 
+          unless $url =~ /^http/; 
+       my $label = $url  
+                 ?  qq{<a href="$url">$anch</a>}
+                 :  $anch ;  
+
+       print "<tr><td>", $label, "</td>",
+             "     <td>  $cid     </td>",
+                 "<td>$napps</td></tr>\n";
+    }
+    print "</table></center>\n";
+   
+}
+sub do_submit  {       
+  	Save_params();
+    do_thanks($Hidden);
+}
+
+sub Save_params  {
+     my @es = Job_Appl_Info3::get_elements();
+     my $ja = new Job_Appl_Info3;
+     my $id = $1 if ($q->param(-name=>"joblist") =~ /id = (\d\d\d\d-\d\d\d)/);
+     print "My id is $id <br />";
+     dump_it();
+
+ 
+    foreach my $e (@es) {  
+      my $value = $q->param(-name=>$e) ? $q->param(-name=>$e): "";
+      print "Save_params:: element $e --> ", $value, "<br />\n";
+      $ja->$e($value);
+    }
+    Job_Appl_Info3::saveit ($ja, $id);
+
+     my $remote_ip = $ENV{'REMOTE_ADDR'};
+      
+     return;
+}
+sub footer {
+    print "<table><center>";
+    print " <tr><td>",   $q->submit(-name=>'edit',-value=>'save'),                
+           "</td><td>",  $q->submit(-name=>'edit',-value=>'back'), "</td></tr>\n";
+    print "</table></center></form>\n";
+    
+    return  
+}
+
+sub Print_Error {
+   my  $err = shift;
+
+  print qq{<h2> You have logged in as $user. but you are not allowed to
+                use this program</h2>};
+   print qq{<p> If you think this is incorrect, contact either Derek or 
+                Gerry};
+}
+
+sub is_Allowed {
+    my $user = shift;
+    my @allowed = qw { grieve derek mpylaeva };
+
+    return 1 if PAsql_Dept::is_faculty($user);
+    return 1 if (grep /$user/, @allowed) ;
+
+ 
+
+    return 0;
+}
+
+sub welcome {
+     my $page_header = shift;
+
+     my $pg_head =  $page_header ? $page_header : "";
+     my $wel_text = $wel ? $wel : " ";
+
+     print <<EndofWelcome2;
+     <h2>$pg_head</h2>
+     <p> $wel_text
+     </p>
+EndofWelcome2
+   
+    return;
+}
+
+sub Form_Welcome {
+     print welcome_text();
+    return;
+}
+
+sub print_query {
+    my @es = Job_Appl_Info3::get_elements();
+    my $e;
+    my $f = $q->param(-name=>"filename");
+    
+    my $value;
+    my $t = Job_Appl_Info3::rd_file($f);
+
+    print "<h2>Print Query </h2>\n <table>";
+      print "</table>\n";
+
+  }
+
+sub Hide_params {
+#    print "Hide_params call get_edit_flags <br />";
+
+    my ($e, $value);
+    my $Hidden = "";
+    return $Hidden;
+}
+
+
+sub do_thanks {
+      my $Hidden = shift;
+     my $fname = $q->param(-name=>"filename");
+
+     $wel = "<h2> Thanks for the input... $fname</h2>";
+  
+    welcome();
+    my $of = Course_HTML::get_html_name($fname);
+     print $Hidden;
+    print "<table><center>";
+    print '<tr><td>See your new Course page: </td>',
+          '<td><a href="', $of, '">',$of,'</a></td></tr>',               
+          "<tr><td>Another Course?</td><td>",  $q->submit(-name=>'edit',-value=>'back'), "</td></tr>\n";
+    print "</table></center>\n";
+    print "<p> ttfn.. </p>";
+    return; 
+
+}
+
+sub dump_it
+{
+	print "<h2> Dump of the query </h2><br />\n";
+
+        print $q->Dump;
+        print "<hr />";
+}
+
+sub Get_Current_Jobs
+{
+   my @cjobs;
+   my @jobs = Job_Ad_MetaData::rd_file();
+
+   foreach my $j (@jobs )  
+   {     
+ #     next unless ( $j->expires > $cut_date);
+      next if ($j->id =~ /2005/);
+ #     print " Get_Current_Jobs:: id is ", $j->id, "<br />";
+      push @cjobs, $j;
+   }
+   return @cjobs;
+}
+ 
+sub welcome_text
+{
+   my $out = "<h1>$title $version </h1>";
+#   $out .= '<script src="/physoffice/jobs/lib/jobs2.js"></script>'."\n";
+   $out .= "<p> </p> ";
+
+}
+sub do_apps_page
+{
+   my $jid = $q->param("Job_ID") || $q->param("edit") ;
+   my @apps = Job_Appl_Info3::Get_Job_Appl_Info($jid);
+
+   print "<h1>Job Applications for $jid </h1>";
+   my $sp = '&nbsp;';
+####
+   my @sorted_apps = @apps;
+   my $ap_cnt = scalar(@apps);
+   my $spec =  "";
+ #  print "<h2> the number of applicants : $ap_cnt </h2>";
+
+   @sorted_apps = (sort by_App @sorted_apps);
+ #  print "<h2> the number of sorted applicants :", scalar(@sorted_apps),"  </h2>";   
+
+   my $page = $q->param('page') ? $q->param('page'): 0;
+#   display_page_index($jid, @sorted_apps);
+   display_app_page($page, $spec, @sorted_apps);	
+#   print "<p>Return to Job Selection Page", 
+#          $q->submit(-name=>'edit',-value=>'back'), 
+#         "</p>";
+
+   print $q->hidden('Job_ID', $jid), "\n";
+}
+
+sub display_page_index
+{
+   my $jid = shift;
+   my @sorted_apps = @_;
+   my $page = 0;  
+   my $cnt = 0;
+
+   print "<h2>Page Index for $jid</h2>";
+   my $mcol = 4;
+   my $newurl = get_new_url($jid);
+   print "<table border=1 cellpadding=4>";
+   print "<tr><td> ",  $q->submit(-name=>'View_New',-value=>"See New Files?"),
+        
+         " </td></tr>" ; 			#if ($nnew > 0);
+   while ( $cnt < $#sorted_apps)
+   {
+        print "<tr>" if ($page%$mcol eq 0);
+        my  $i_app = $sorted_apps[$cnt];
+        my $v = $i_app->File_Name;
+        $v = (split'/', $v)[-2];
+        print "<td>Page:",
+              $q->submit(-name=>'page',-value=>$page),
+              "starts with $v</td>";
+        print "</tr>" if ($page%$mcol eq $mcol-1); 
+        $cnt += $NAPPS_PER_PAGE;
+        $page ++;
+   }
+   print "<tr><td>Page:",
+          $q->submit(-name=>'page',-value=>-1),
+              "show all applicants</td></tr>";
+   print "<tr><td>Select by Gender:</td><td>",
+         '<input type="radio", name="Gender",  value="F">', "Females $sp",
+         '<input type="radio", name="Gender",  value="M">', "Males $sp",       
+          "</td></tr>\n";
+   print "<tr><td>Select by Citizenship:</td><td>",
+         '<input type="radio", name="State",  value="C">', "Canucks $sp",
+         '<input type="radio", name="State",  value="O">', "Other $sp",       
+          "</td></tr>\n";
+
+   print "</table>";
+}
+
+sub display_app_page
+{
+    my $page = shift;
+    my $spec = shift;
+    my @apps = @_;
+    my $cnt = ($page < 0) ? 0 : $page * $NAPPS_PER_PAGE;
+    
+    my $StateSelect = "";
+    if ($q->param("State"))
+    {
+       $StateSelect = "Canucks Only"     if $q->param("State") eq "C";
+       $StateSelect = "Non-Canucks Only" if $q->param("State") eq "O";
+    }
+    my $sexSelect = "";
+    if ($q->param("Gender"))
+    {
+       $sexSelect = "Males Only" if $q->param("Gender") eq "M";
+       $sexSelect = "Females Only" if $q->param("Gender") eq "F";
+    }
+    my $pplus1 = $page +1;
+    print "<h2>Page $pplus1 $sexSelect $StateSelect $sp $sp";
+    print " $spec $sp $sp" if $spec ;
+    print   $q->submit(-name=>'View_by_KW',
+                       -value=>"View by keywords") if ($spec =~ /^Other/); 
+    print qq{Note:  Red Highlighted names indicates  short-listed  applicants.<br />};
+    print qq{Note: Yellow Highlighted names indicates  long-listed  applicants.<br />};
+  
+    print "</h2>";
+      my $ja = $apps[0];
+      my $v  =  $ja->File_Name;
+      my $s  = $ja->Status;
+#      print " <h3> {$v} {$s} </h3>";
+
+
+    print "<table border=1>";
+    my $napps = ($page < 0) ? $#apps : $NAPPS_PER_PAGE-1;
+
+
+       print "<tr> <td> Num$sp</td>";
+       print "     <td> Link to App's Page </td>\n";
+       print  "    <td> Name </td>";
+       print  "    <td> Gradudated From </td>";
+       print  "    <td>Gender</td>";
+       print  "    <td>Citizenship</td>\n";
+       print "</tr>";
+
+    foreach my $i (0 .. ($napps))
+    {
+       my $bclass= " ";
+       my $cclass = "";
+       my $ia = $cnt + $i;
+       my $ja = $apps[$ia];
+       my $v  =  $ja->File_Name;
+       next if ($q->param("State") and 
+                ! State_Wanted($q->param("State"),$ja->citizenship));
+       next if ($q->param("Gender") and 
+                $q->param("Gender") ne $ja->gender);
+       $bclass = qq{class="shortlist"}  if  ($ja->Status eq "SL");
+       $bclass = qq{class="longlist"}  if  ($ja->Status eq "LL");
+       $cclass = qq{style="background:#ff4d4d;"} if $ja->Status;
+       $v = (split'/', $v)[-2];
+       
+       print "<tr>\n";
+       print "<td> $ia $sp</td>";
+       print "<td>", $q->submit(-name=>'Job_Appl',
+                                -value=>$v,
+				-class=>$bclass), "</td>\n";
+     
+       print "   <td $bclass> ", $ja->{fname}, $sp, 
+                         $ja->{mname}, $sp,
+                         $ja->{lname}, "</td>";
+       print  "   <td>", $ja->Grad_From;
+       print  "<br /> Research: ", $ja->{Res_Keywords} if $spec =~/Other/; 
+       print  "                         </td>";  
+       print  "   <td>", $ja->gender, "</td>";
+       print  "   <td>", $ja->citizenship, "</td>";
+       
+       print  "</tr>";
+       last if ($ia eq $#apps);
+
+   }
+   print "</table>";
+
+}
+
+sub by_App 
+{
+   my $aa = $a->File_Name;
+   my $bb =  $b->File_Name;
+   
+   my $ax =  (split "/",$aa)[-2];
+   my $bx =  (split "/",$bb)[-2];
+   $ax = lc $ax;
+   $bx = lc $bx;
+
+   $ax cmp $bx;
+}
+
+sub  do_show_appl
+{
+   my $this_appl = shift;
+   my $jid = $q->param("Job_ID");
+
+ #  print "<h2> Applicant: $this_appl   for Job $jid</h2>";
+
+   my $out = Job_Appl_Info3::html_appl_DocServe($this_appl,$jid);
+   print $out;
+   print $q->submit(-name=>'Back',-value=>"Back"), "\n";
+   print $q->hidden('Job_ID', $jid), "\n"; 
+#   print $q->hidden('Job_Appl',$this_appl ),"\n";
+
+   return;
+}
+
+sub State_Wanted
+{
+   my $want = shift;    	# C-- > canucks O --> Non Canucks
+   my $have = shift;
+
+   return 0 if $have eq "Not entered";
+   return 1 if $have eq "Non-Canadian" and $want eq "O";
+   return 1 if ($have eq "Canadian" or
+                $have eq "Permanent Canadian Resident") and
+                $want eq "C";
+   return 0;
+}
+sub Format_Tel
+{
+    my $ja = shift;
+    my $out = "";
+    my $home = $ja->htel ? $ja->htel : "no htel";
+    my $off = $ja->otel ? $ja->otel : "no otel";
+    $out .= $home  . " (home)  " . $off . "(office) ";
+ 
+}
+
+sub Format_Deg
+{
+    my $ja = shift;
+    my $out = "";
+    $out .= $ja->LastDegree . " ( " . $ja->YearConferred . " )";
+    $out .= " from " . $ja->Grad_From;
+
+}
+sub Format_Addr
+{
+    my $ja = shift;
+    my $out = "";
+    my $nl = "<br />";
+    my $Prov = $ja->prov ? $ja->prov : " no_Prov";
+    my $Count = $ja->country ? $ja->country : " no_country";
+    my $pcode = $ja->pcode ? $ja->pcode: " no_postal";
+    $out .= $ja->maddr . $nl. $ja->City . $nl .$Prov .$nl .$Count;
+    $out .= $nl . $pcode;
+}
+
+sub do_FileUpload
+{
+    print "<h2>do_FileUpload</h2>\n";
+    print "CV file : ", $q->filefield(-name=>'uploaded_file',
+	                                  -default=>'starting value',
+	                                  -size=>50,
+	 		                          -maxlength=>80),
+           "\n";
+  
+   print $q->submit(-name=>'Read_File',-value=>"Continue?"), "\n"; 
+#   print $q->hidden('Job_ID', $jid), "\n";   
+}
+
+sub do_Read_File
+{
+    print "<h2>do_Read_File</h2>\n";
+    my ($bytesread, $buffer);
+    my $filename = $q->param('uploaded_file');
+
+    # Copy a binary file to somewhere safe
+    open (OUTFILE,">>/tmp/feedback");
+	while ($bytesread=read($filename,$buffer,1024)) 
+    {
+	   print OUTFILE $buffer;
+    }
+    close $filename;
+
+    print "<h2>file put into /tmp/feedback</h2>\n";
+    print $q->submit(-name=>'Read_File',-value=>"Continue?"), "\n";  
+ #  print $q->hidden('Job_ID', $jid), "\n";  
+}
+
+sub get_new_docx
+{
+   return (1,2,3);
+}
+
+sub get_new_doc
+{
+  my $jid = shift;
+  my $newfile = "/www/jobs/App_Data/new";
+  $jid = Job_Appl_Info3::unTaint($jid);
+  my $htmlfile = "/www/jobs/App_Data/New/".$jid ."_new.html";
+  my @newfiles;
+  $/ = "\n";
+  open (N, $newfile ) || die "Cannot open $newfile \n";
+
+  while (<N>)
+  {
+      next unless /$jid/;
+      next if /formdata.xml/;
+      next if /_Delete/;
+      chomp;
+      my @xdirs = split "/";
+      next if $#xdirs < 3;
+      push @newfiles, $_;
+  }
+  close N;
+  my @xout = split " ", `ls -l $newfile`;
+  my $mtime = join " " , ($xout[5], $xout[6], $xout[7]);
+
+
+  open (K, ">$htmlfile") || die " Cannot open $htmlfile\n";
+  
+  my $ncgi = new CGI;
+
+  print K $ncgi->start_html( -title  => "PandA Online Job Appl New files", 
+                          -style  =>{'src'=>'/jobs/lib2/job.css'},),"\n";
+
+  print K "<h2> New files for Comp Number $jid</h2>";
+  print K "<p> the following file have been uploaded within the last day.<br />
+               ie <code>find . -mtime -1</code> which was run $mtime</p>";
+  
+  print K "<ul>\n";
+  foreach my $f ( @newfiles)
+  {
+      my $anch = $f;
+    
+      $anch =~ s[^\.\/$jid\/][];
+      my $url = $f;
+      $url =~ s[^\.][/jobs/App_Data];
+      print K '<li><a href="',$url,'">', "$anch</a></li>\n";
+  }
+  print K "<ul>";
+  print K $ncgi->end_html;
+  return @newfiles;
+
+}
+ sub get_new_url
+{
+  my $jid = shift;
+  
+
+  my $url =  "/jobs/App_Data/new_files/new_" . $jid .".html";
+ # $url =~ s[^\/www][];
+  return $url;
+}
+
+sub do_View_NewX
+{   
+   print "<h2>do_View_New subroutine</h2>";
+   my $jid = $q->param("Job_ID");
+   my $root_dir = "/www/jobs/App_Data/";
+   my %options = ();
+   $options{wanted} = \&find_new_files;
+   $options{untaint}++;
+  
+      my $ser_dir = $root_dir . $jid ;
+  
+      find (\%options, $ser_dir);
+  
+      foreach (@new_files)
+      {
+         next if  /_Deleted/ or /formdata/;
+         s[^/www][];
+         my $url = $_;
+         my @x = split "\/", $url;
+         my $dirname =  $x[-2];
+         my $anch = $x[-1];
+         print "$dirname ", '<a href="',$url,'">', "$anch</a>\n";
+         print "<br />";
+      }
+    
+ 
+   return;
+}
+
+sub find_new_files
+{
+ #  print "<h2>doit </h2>";
+    use File::Find;
+   
+ 
+    return if -d;
+    return if /_Deleted/ or /formdata/;
+    my $f = $File::Find::name;
+    my $age = -M _;
+#    print $f,"-->", $age," <br />"; 
+    
+    my $iage = int ($age);
+    return if   ($iage > $New_File_Age);
+    
+
+    push @new_files, $f;
+ 
+    $New_file_Age{$f}= $iage;
+  #  print "doit:: age of file", $f,"-->", $iage; 
+  #  print "   \n";
+}
+sub do_View_New
+{   
+
+   my $jid = $q->param("Job_ID");
+   my $root_dir = "/www/jobs/App_Data/";
+
+   my $tit = "Files added within the last $New_File_Age days for $jid";
+  
+   my @apps = Job_Appl_Info3::Get_Job_Appl_Info($jid);
+   my @sorted_apps = @apps;
+   my $ap_cnt = scalar(@apps);
+ #  print "<h2> the number of applicants : $ap_cnt </h2>";
+   if ($jid eq "2005-06" and $q->param("Spec") and $q->param("Spec") ne "All Specializations")
+   {
+ 
+      @sorted_apps =  by_App_By_Spec($q->param("Spec"), \@apps);      
+   }
+   $tit .= " : Spec: " . $q->param("Spec") if ($jid eq "2005-06");
+   @sorted_apps = (sort by_App @sorted_apps);
+   print "<h2>$tit</h2>";
+ #  print "<h2>number of app with new data : ", scalar @sorted_apps, "</h2>"; 
+   my %options = ();
+   $options{wanted} = \&find_new_files;
+   $options{untaint}++;
+   print "<table>\n";
+   my $n_new = 0;
+   foreach my $appx (@sorted_apps )
+   {
+      my $xfile =  $appx->{"File_Name"};
+      my $who = $appx->{"lname"} . ", " . $appx->{"fname"};
+      my $appdir = (split "\/", $xfile)[-2]; 
+      
+   #   print "<h2> ", $appdir, "</h2>";
+      my $ser_dir = $root_dir . $jid . "/" . $appdir;
+      @new_files = ();
+      find (\%options, $ser_dir);
+      my $cell1 = $who;
+      my $newurls = "";
+      $n_new = 0;
+      foreach (@new_files)
+      {
+         next if  /_Deleted/ or /formdata/;
+         s[^/www][];
+         $n_new++;
+         my $url = $_;
+         my @x = split "\/", $url;
+         my $dirname =  $x[-2];
+         my $anch = $x[-1];
+         $newurls .=  '<a href="'.$url . '">' . "$anch</a>" . '&nbsp;'x3;
+      }
+      print "<tr><td>$who</td><td> $newurls </td></tr>\n" if $n_new > 0;
+   }
+    print "</table>\n";
+   return;
+ 
+   
+}
+
+sub do_View_by_KW
+{
+
+   print "<h2>View by Research Key Words </h2>\n";
+   print <<Endofintro;
+<p> In the information gathering form, we asked the applicants to provide keywords to describe
+their research.  This table sorts the applicants by the keywords that they provided.  The input
+string was treated as  comma (or semi colon) separated values to get this list.
+ 
+Endofintro
+
+ my $jid = "2005-06";
+ 
+  my $sp = ", ";
+  Job_Appl_Info3::Set_xml_dir($jid);
+  my @apps = Job_Appl_Info3::Get_Job_Appl_Info($jid);
+  my %app_by_kw = ();
+  my %KW = ();
+  my $sp ='&nbsp;';
+  foreach my $ja (@apps)
+  {
+     next unless $ja->{specialization} =~ /Other/;
+
+     my $v = $ja->File_Name;
+     $v = (split'/', $v)[-2];
+     my $keywords = lc $ja->{Res_Keywords};
+     $keywords =~ s/[:;]/,/g;
+      
+     my @kw = split ",", $keywords ;
+     foreach  (@kw)
+     { 
+        s/^\s+and//;
+        s/^\s+//;
+
+        push @{$app_by_kw{$_}},  $v;
+        $KW{$_}++;
+     }
+ 
+  }
+  print "<table>\n";
+  foreach my $kw (sort keys %KW)
+  {
+     print "<tr><td>$kw</td><td>";
+     foreach my $ia (@{$app_by_kw{$kw}} )
+     {
+        print   $q->submit(-name=>'Job_Appl',-value=>$ia), "   $sp $sp ";
+
+     }
+   print "</td></tr>\n";
+   }
+   print "</table>\n";
+   print $q->hidden('Job_ID', $jid), "\n"; 
+   return;
+}

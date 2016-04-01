@@ -1,0 +1,115 @@
+#!/usr/local/bin/perl -wT
+
+# save the entered info to a file & redisplay
+# this script is intended to management info that is editable by 
+# the course intructors:  course.cgi is a more general tool
+
+$ENV{PATH} = "/bin:/usr/bin";
+use lib '/www/jobs/lib/';
+use Date::Calc qw { Today Delta_Days Add_Delta_Days};
+
+use Debug;
+use strict;
+use CGI;
+use CGI::Carp 'fatalsToBrowser';
+
+my $DEBUG = 1;
+Debug::Set_Debug($DEBUG, "html");
+my $styleURL = '/jobs/lib/job.css';
+my $this_script = "/cgi-bin/Jobs/xMail";
+my $q = new CGI;
+print $q->header(-type=> "text/html", -expires=>'now'), "\n";
+print $q->start_html( -title   => "PandA Online Job Applocation Info ", 
+                      -style   => {'src'=> $styleURL },
+                     ),"\n";
+print $q->startform("POST", $this_script,"multipart/form-data"), "\n";
+print "<h2> Mail:Mailer test 1";
+my $sub = $q->submit(-name=>'edit',-value=>'Confirm');
+
+if ($q->param('edit') eq 'Confirm') { send_email(); }
+else                                 { do_mainpage();}
+				
+
+
+
+print $q->end_form;
+print $q->end_html;
+exit;
+
+sub do_mainpage {
+	
+	my $email_field = $q->textfield(-name=>'email',
+									-value=>'',
+									-size=>50,
+									-maxlength=>80);
+	print qq{<p>enter Email : $email_field </p>};
+	print qq{<p>$sub </p>};
+}
+sub send_email {
+    my $email = $q->param('email');
+	my $id = "2016-01";
+	my $name = "Boop";
+	my $title = 'some test position';
+	my $noCV = "";
+	my $body = "";
+	use Mail::Mailer;
+	use Perl6::Slurp;
+	
+	Debug::dsay (" xApply::send_email:: line 301  the email is {$email} ");
+	my $wfile = "/www/jobs/lib/equity_survey_email.$id.txt";
+	if (-f $wfile ) {
+		$body = slurp $wfile;
+		$body =~ s/XX_name_XX/$name/;
+		$body =~ s/XX_position_XX/$title/;
+		$body =~ s/XX_noCV_XX/$noCV/;
+	
+	} else {
+		$body = qq{<p> Thank You Dr $name for your  interest in the $title</p>}
+	
+	}
+	print qq{<div><p> The body is </p>
+		              <em> $body </em>
+				  </div\n};
+	my %headers= ( 	To => $email,
+						From => 'jobs@phas.ubc.ca',
+						Subject => 'UBC Equity Survey');
+               
+	my   $mailer = Mail::Mailer->new('sendmail');
+    $mailer->open(\%headers);
+	print $mailer $body;
+	$mailer->close
+		or die "couldn't send whole message: $!\n";
+	
+
+    return;
+}
+#sub send_email {
+#    my $email = shift;
+#    my $name  = shift;
+#	my $pos   = shift;
+#    my $id    = shift;
+#	
+#	use Mail::Mailer;
+#	use Perl6::Slurp;
+#
+#	my $wfile = '/www/jobs/lib/equity_survey_email.$id.txt';
+#		Debug::dsay (" xApply::send_email:: line 301  the email is {$email} {$wfile}");
+#	if (-f $wfile ) {
+#		my $body = slurp $wfile;
+#		$body =~ s/XX_name_XX/$name/;
+#		$body =~ s/XX_position_XX/$pos/;
+#  
+#		my %headers= ( 	To => $email,
+#						From => 'jobs@phas.ubc.ca',
+#						Subject => 'UBC Equity Survey');
+#               
+#		my   $mailer = Mail::Mailer->new('sendmail');
+#	    $mailer->open(\%headers);
+#		print $mailer $body;
+#		$mailer->close
+#		   or die "couldn't send whole message: $!\n";
+#	}
+#	
+#
+#    return;
+#}

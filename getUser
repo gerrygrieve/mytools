@@ -1,0 +1,50 @@
+#!/usr/local/bin/perl -wT
+
+
+
+$ENV{PATH} = "/bin:/usr/bin:/wwws";
+
+use lib '/www/jobs/lib/';
+use lib '/var/www/lib/perl/sql_lib';
+#use lib '/var/www/courses/prod/lib/';
+use lib '/www/Gform/lib';
+
+use xPAsql_Sessions;
+use Data::Dumper;
+use strict;
+use CGI;
+use CGI::Carp 'fatalsToBrowser';
+use Debug;
+my $this_script = "/cgi-bin/Jobs/getUser";
+
+my $q = new CGI;
+my $Debug = Debug::Set_Debug(10,"html");    
+
+print $q->header(-type=> "text/html", -expires=>'now'), "\n";
+print $q->start_html( -title  => "PandA Online Job Appl Viewer ", 
+                      -style  =>{'src'=>'/jobs/lib2/job.css'},),"\n";
+print $q->start_multipart_form("POST", $this_script), "\n";
+#Debug::dsay (" callxPAsql_Sessions::getPHASuser() ");
+
+Debug::dsay (" try getting the user from  /wwws/xgetuser.php ");
+
+#my $user = `pwd`;
+#my $user = `/wwws/xgetuser.php`;
+my $user = `/usr/bin/php /wwws/xgetuser.php`;
+#my $user = `php /wwws/xgetuser.php`;
+#my $user = system ("/wwws/xgetuser.php");
+
+
+#my $user = xPAsql_Sessions::getPHASuser();
+#Debug::dsay (" debug is $Debug");
+#Debug::dumpit($q) if $Debug >1;
+Debug::dsay (" user is {$user}");
+
+print $q->endform;
+print $q->end_html;
+exit;
+
+
+
+
+
